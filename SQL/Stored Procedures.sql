@@ -26,6 +26,7 @@ SELECT
 FROM (
         SELECT 
             customer_id,
+			to_char(log_date, 'YYYYMMDD') AS log_date,
             device,
             location,
             os,
@@ -34,19 +35,21 @@ FROM (
         FROM "Stage".review_session
         GROUP BY customer_id, device, location, os
     ) r
-LEFT OUTER JOIN (
+INNER JOIN (
         SELECT 
             customer_id,
             SUM(quantity * unit_price) AS amount_spent
         FROM "Stage".user_purchase
         GROUP BY customer_id
     ) p ON p.customer_id = r.customer_id
-LEFT OUTER JOIN "EDW".dim_devices dd  
+INNER JOIN "EDW".dim_devices dd  
     ON dd.device = r.device
-LEFT OUTER JOIN "EDW".dim_location dl  
+INNER JOIN "EDW".dim_location dl  
     ON dl.location = r.location
-LEFT OUTER JOIN "EDW".dim_os dos 
+INNER JOIN "EDW".dim_os dos 
     ON dos.os = r.os
+INNER JOIN	"EDW".dim_date dda 
+	ON to_char(dda.log_date, 'YYYYMMDD') = r.log_date
 WHERE NOT EXISTS (
 		SELECT 1
 		FROM "EDW".fact_movie_analytics fma
