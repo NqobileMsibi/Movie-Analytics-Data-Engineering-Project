@@ -1,10 +1,10 @@
-CREATE OR REPLACE PROCEDURE "EDW".sp_load_fact_movie_analytics()
+CREATE OR REPLACE PROCEDURE "EDW".sp_fact_movie_analytics()
 LANGUAGE plpgsql
 AS $proc$
 DECLARE
     v_rows INTEGER;
 BEGIN
-    INSERT INTO "EDW".fact_movie_analytics (
+INSERT INTO "EDW".fact_movie_analytics (
         customerid, 
         id_dim_devices, 
         id_dim_location, 
@@ -23,8 +23,7 @@ SELECT
         r.review_score,
         r.review_count,
         CURRENT_DATE AS insert_date
-    FROM (
-        -- Aggregate reviews to grain
+FROM (
         SELECT 
             customer_id,
             device,
@@ -32,26 +31,30 @@ SELECT
             os,
             SUM(positive_review) AS review_score,
             COUNT(*) AS review_count
-        FROM "Stage".fact_review
+        FROM "Stage".review_session
         GROUP BY customer_id, device, location, os
     ) r
-    LEFT JOIN (
-        -- Aggregate purchases per customer (one row per customer)
+LEFT OUTER JOIN (
         SELECT 
             customer_id,
             SUM(quantity * unit_price) AS amount_spent
         FROM "Stage".user_purchase
         GROUP BY customer_id
     ) p ON p.customer_id = r.customer_id
-    LEFT OUTER JOIN "EDW".dim_devices dd  
+LEFT OUTER JOIN "EDW".dim_devices dd  
     ON dd.device = r.device
-    LEFT OUTER JOIN "EDW".dim_location dl  
+LEFT OUTER JOIN "EDW".dim_location dl  
     ON dl.location = r.location
-    LEFT OUTER JOIN "EDW".dim_os dos 
-    ON dos.os = r.os;
-	
-	GET DIAGNOSTICS v_rows = ROW_COUNT;
-    RAISE NOTICE 'Inserted % rows into fact_movie_analytics', v_rows;
+LEFT OUTER JOIN "EDW".dim_os dos 
+    ON dos.os = r.os
+WHERE NOT EXISTS (
+		SELECT 1
+		FROM "EDW".fact_movie_analytics fma
+		WHERE fma.customerid = p.customer_id
+		AND   fma.id_dim_devices = dd.id_dim_devices
+		AND   fma.id_dim_location = dl.id_dim_location
+		AND   fma.id_dim_os = dos.id_dim_os
+		)
 END;
 $proc$;
 
@@ -123,4 +126,40 @@ WHERE device NOT IN (
 			SELECT device
 			FROM "EDW".dim_devices
 )
+$BODY$;
+
+-- Joined movie_review and log_review
+CREATE OR REPLACE PROCEDURE "Stage".sp_review_session(
+	)
+LANGUAGE 'plpgsql'
+AS $BODY$
+BEGIN
+    INSERT INTO "Stage".review_session (
+        id_review, 
+		customer_id, 
+		positive_review,
+        log_date, 
+		device, 
+		os, 
+		location, 
+		ip, 
+		phone_number
+    )
+    SELECT 
+        mr.id_review,
+        mr.cid AS customer_id,
+        CASE WHEN mr.positive_review = 'true' THEN 1 ELSE 0 END,
+        CAST(lr.log_date AS timestamp), 
+		lr.device, 
+		lr.os, 
+		lr.location, 
+		lr.ip, 
+		lr.phone_number
+    FROM "Stage".movie_review mr
+    INNER JOIN "Stage".log_review lr ON lr.id_review = mr.id_review
+    WHERE NOT EXISTS (
+        SELECT 1 FROM "Stage".review_session rs
+        WHERE rs.id_review = mr.id_review
+    );
+END;
 $BODY$;
