@@ -306,3 +306,38 @@ This project supports queries such as:
 ---
 
 ## Project Structure
+
+```bash
+movie-analytics-pipeline/
+├── README.md
+├── docker-compose.yml
+├── .env
+├── dags/
+│   └── movie_analytics_pipeline.py
+├── spark_jobs/
+│   ├── transform_reviews.py
+│   ├── transform_logs.py
+│   ├── extract_user_purchase.py
+│   └── build_fact_movie_analytics.py
+├── sql/
+│   ├── create_source_schema.sql
+│   ├── create_stage_tables.sql
+│   ├── create_dim_tables.sql
+│   ├── create_fact_table.sql
+│   └── analytics_queries.sql
+├── scripts/
+│   ├── load_user_purchase.py
+│   ├── upload_raw_files.sh
+│   └── init_connections.sh
+├── data/
+│   ├── raw/
+│   │   ├── movie_review.csv
+│   │   └── log_reviews.csv
+│   └── sample/
+│       └── user_purchase.csv
+├── docs/
+│   ├── architecture-diagram.png
+│   ├── airflow-dag.png
+│   └── metabase-dashboard.png
+└── notebooks/
+    └── exploratory_checks.ipynb
