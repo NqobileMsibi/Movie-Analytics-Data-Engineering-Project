@@ -1,0 +1,280 @@
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  image: custom-airflow-spark:3.5.1
+  env_file:
+    - .env
+  environment:
+    # Make sure the airflow binary is found by entrypoint/healthchecks
+    &airflow-common-env
+    PATH: /opt/spark/bin:/home/airflow/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games
+
+    # Core settings
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY}
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+
+    # Keep Airflow small on 8 GB RAM
+    AIRFLOW__CORE__PARALLELISM: 4
+    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: 2
+    AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: 1
+    AIRFLOW__SCHEDULER__MAX_TIS_PER_QUERY: 8
+    AIRFLOW__SCHEDULER__PARSING_PROCESSES: 1
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 60
+    AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 60
+    AIRFLOW__SCHEDULER__SCHEDULER_HEARTBEAT_SEC: 10
+
+    # Database connection - AWS RDS
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://{POSTGRES_USER}:${POSTGRES_PASSWORD}@{POSTGRES_HOST}:5432/airflow_db
+    AIRFLOW__DATABASE__SQL_ALCHEMY_POOL_SIZE: 2
+    AIRFLOW__DATABASE__SQL_ALCHEMY_MAX_OVERFLOW: 2
+    AIRFLOW__DATABASE__SQL_ALCHEMY_POOL_RECYCLE: 1800
+    AIRFLOW__DATABASE__SQL_ALCHEMY_POOL_PRE_PING: 'true'
+
+    # Celery configuration
+    AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://{POSTGRES_USER}:${POSTGRES_PASSWORD}@{POSTGRES_HOST}:5432/airflow_db
+    AIRFLOW__CELERY__WORKER_CONCURRENCY: 1
+    AIRFLOW__CELERY__WORKER_PREFETCH_MULTIPLIER: 1
+    AIRFLOW__CELERY__TASK_ACKS_LATE: 'true'
+
+    # Web server security/performance
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'false'
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${WEBSERVER_SECRET_KEY}
+    AIRFLOW__WEBSERVER__WORKERS: 2
+    AIRFLOW__WEBSERVER__WORKER_REFRESH_BATCH_SIZE: 1
+    AIRFLOW__WEBSERVER__WEB_SERVER_WORKER_TIMEOUT: 300
+    AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT: 300
+
+    # API authentication
+    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+
+    # Logging to remote storage
+    AIRFLOW__LOGGING__REMOTE_LOGGING: 'true'
+    AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER: s3://airflow-logs-430118855758-af-south-1-an/airflow-logs/
+    AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: aws_default
+    AIRFLOW__LOGGING__ENCRYPT_S3_LOGS: False
+
+    # Spark configuration
+    SPARK_MASTER_URL: spark://spark-master:7077
+    SPARK_HOME: /opt/spark
+
+    # Airflow Spark connection
+    AIRFLOW_CONN_SPARK_DEFAULT: spark://spark://spark-master:7077
+
+    # Avoid Python buffering in Docker logs
+    PYTHONUNBUFFERED: '1'
+
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./plugins:/opt/airflow/plugins
+    - ./config:/opt/airflow/config
+    - ./spark-apps:/opt/airflow/spark-apps
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly no --save ""
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: always
+    mem_limit: 256m
+    cpus: 0.25
+
+  spark-master:
+    image: spark:3.5.1-python3
+    container_name: spark-master
+    hostname: spark-master
+    command: [ "/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master" ]
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      SPARK_MASTER_HOST: "spark-master"
+      SPARK_MASTER_PORT: "7077"
+      SPARK_MASTER_WEBUI_PORT: "8080"
+      SPARK_DAEMON_MEMORY: "512m"
+    ports:
+      - "7077:7077"
+      - "8081:8080"
+    volumes:
+      - ./spark-apps:/opt/spark-apps
+      - ./spark-data:/opt/spark-data
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -q --spider http://localhost:8080 || exit 1" ]
+      interval: 45s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: always
+    mem_limit: 768m
+    cpus: 0.5
+
+  spark-worker:
+    image: spark:3.5.1-python3
+    hostname: spark-worker
+    command: [ "/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077" ]
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      SPARK_WORKER_WEBUI_PORT: "8081"
+      SPARK_WORKER_CORES: "1"
+      SPARK_WORKER_MEMORY: "1g"
+      SPARK_DAEMON_MEMORY: "512m"
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    ports:
+      - "8082:8081"
+    volumes:
+      - ./spark-apps:/opt/spark-apps
+      - ./spark-data:/opt/spark-data
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -q --spider http://localhost:8081 || exit 1" ]
+      interval: 45s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: always
+    mem_limit: 1536m
+    cpus: 1.0
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -lc
+      - |
+        set -e
+
+        echo "PATH=$$PATH"
+        echo "Checking airflow binary..."
+        command -v airflow
+        airflow db migrate
+
+        airflow users create \
+          --username admin \
+          --password "$${ADMIN_PASSWORD}" \
+          --firstname John \
+          --lastname Doe \
+          --role Admin \
+          --email john.doe@example.com || true
+
+        airflow connections add spark_default \
+          --conn-type spark \
+          --conn-host spark-master \
+          --conn-port 7077 || true
+    environment:
+      <<: *airflow-common-env
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    depends_on:
+      redis:
+        condition: service_healthy
+      spark-master:
+        condition: service_healthy
+    mem_limit: 768m
+    cpus: 0.5
+
+  webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl --fail http://localhost:8080/health || exit 1" ]
+      interval: 45s
+      timeout: 10s
+      retries: 5
+      start_period: 150s
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    mem_limit: 2g
+    cpus: 1.0
+
+  scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: [ "CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname \"$${HOSTNAME}\" || exit 1" ]
+      interval: 45s
+      timeout: 10s
+      retries: 5
+      start_period: 150s
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    mem_limit: 1024m
+    cpus: 1.0
+
+  worker:
+    <<: *airflow-common
+    command: celery worker
+    healthcheck:
+      test: [ "CMD-SHELL", "celery --app airflow.providers.celery.executors.celery_executor.app inspect ping -d celery@\"$${HOSTNAME}\" || exit 1" ]
+      interval: 60s
+      timeout: 20s
+      retries: 5
+      start_period: 180s
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    mem_limit: 1536m
+    cpus: 1.0
+
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
+    healthcheck:
+      test: [ "CMD-SHELL", "airflow jobs check --job-type TriggererJob --hostname \"$${HOSTNAME}\" || exit 1" ]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 150s
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    mem_limit: 512m
+    cpus: 0.5
+
+  flower:
+    <<: *airflow-common
+    command: celery flower
+    profiles:
+      - flower
+    ports:
+      - "5555:5555"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl --fail http://localhost:5555/ || exit 1" ]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    mem_limit: 512m
+    cpus: 0.5
+
+volumes:
+  redis_data:
