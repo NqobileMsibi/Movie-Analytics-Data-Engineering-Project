@@ -13,8 +13,7 @@ id_dim_date INTEGER PRIMARY KEY,
 log_date DATE,
 day VARCHAR,
 month VARCHAR,
-year VARCHAR,
-season VARCHAR
+year VARCHAR
 );
 
 CREATE TABLE "EDW".dim_devices (
