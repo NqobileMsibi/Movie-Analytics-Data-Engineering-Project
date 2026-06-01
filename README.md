@@ -291,6 +291,7 @@ This project supports queries such as:
 ## Author
 
 Nqobile Msibi
+
 Data Engineer | Data Analyst | Analytics Engineer | Cloud Data Enthusiast
 
 - LinkedIn: https://www.linkedin.com/in/nqobile-msibi/
