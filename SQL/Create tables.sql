@@ -28,7 +28,7 @@ location VARCHAR
 );
 
 CREATE TABLE "EDW".dim_os (
-id_dim_devices INTEGER PRIMARY KEY,
+id_dim_os INTEGER PRIMARY KEY,
 os VARCHAR
 );
 
