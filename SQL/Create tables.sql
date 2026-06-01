@@ -1,5 +1,6 @@
 CREATE TABLE "EDW".fact_movie_analytics (
 customerid INTEGER,
+id_dim_date INTEGER,
 id_dim_devices INTEGER,
 id_dim_location INTEGER,
 id_dim_os INTEGER,
