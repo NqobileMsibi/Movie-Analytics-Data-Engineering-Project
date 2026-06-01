@@ -1,7 +1,5 @@
 # End-to-End Movie Analytics Data Pipeline
 
-Built by **Nqobile Msibi** as a capstone project for the **Google Africa Data Engineering Bootcamp**, this project demonstrates an end-to-end data engineering workflow using **AWS EC2**, **Docker**, **Apache Airflow**, **Apache Spark**, **Amazon RDS PostgreSQL**, **SQL**, and **Metabase**.
-
 The solution ingests transactional and external review data, transforms it into analytics-ready datasets, and loads a dimensional warehouse to support reporting and business insights.
 
 ---
@@ -16,7 +14,7 @@ The final output is a warehouse centered around a fact table called **`fact_movi
 - device
 - location
 - operating system
-- browser
+- date
 
 This enables downstream analytics such as:
 
@@ -48,8 +46,6 @@ This enables downstream analytics such as:
     - Airflow metadata database
     - source transactional data
     - analytics warehouse tables
-- **Metabase**
-  - connected to the warehouse for dashboarding and analytics
 - **SQL**
   - used for schema design, dimensional modeling, and analytics queries
 
@@ -76,11 +72,10 @@ The source data comes from three systems:
      - device
      - OS
      - region/location
-     - browser
      - IP
      - phone number
 
-The challenge was to combine these datasets, clean and transform them, then model them into a warehouse that supports analytics consumption.
+The challenge was to setting up airflow to use spark to run the transforms and split the xml data into it's individual columns.
 
 ---
 
@@ -103,31 +98,25 @@ The challenge was to combine these datasets, clean and transform them, then mode
    - convert boolean result into integer score:
      - `1` for positive
      - `0` otherwise
-   - write transformed review data to staging
+   - write transformed review data to staging table
 
 4. **Transform logs with Spark**
    - parse XML stored in the log column
    - extract structured metadata fields
    - remove raw XML column
-   - write structured log data to staging
+   - write structured log data to staging table
 
-5. **Extract purchase data**
-   - read `user_purchase` from PostgreSQL
-   - stage it for warehouse processing
-
-6. **Build dimension tables**
+5. **Build dimension tables**
    - `dim_date`
    - `dim_devices`
    - `dim_location`
    - `dim_os`
-   - `dim_browser`
 
-7. **Build fact table**
+6. **Build fact table**
    - `fact_movie_analytics`
    - aggregate amount spent, review score, and review count by customer and dimension keys
 
-8. **Serve analytics**
-   - connect warehouse tables to Metabase
+7. **Serve analytics**
    - create analytics queries and dashboard-ready datasets
 
 ---
@@ -140,7 +129,7 @@ The challenge was to combine these datasets, clean and transform them, then mode
 - **Orchestration**: Apache Airflow
 - **Processing**: Apache Spark / PySpark
 - **Database / Warehouse**: Amazon RDS PostgreSQL
-- **Analytics / BI**: Metabase
+- **Analytics / BI**: PowerBI
 - **Querying**: SQL
 - **Programming**: Python
 
@@ -179,7 +168,6 @@ Review session metadata.
   - `device`
   - `os`
   - `location`
-  - `browser`
   - `ip`
   - `phone_number`
 
@@ -211,23 +199,21 @@ Using PySpark, I transformed `log_reviews.csv` by:
 - mapping the schema for XML content in the log field
 - parsing the XML content into structured columns
 - extracting:
-  - `log_id`
+  - `review_id`
   - `log_date`
   - `device`
   - `os`
   - `location`
-  - `browser`
   - `ip`
   - `phone_number`
 - dropping the original raw log/XML column
 
 **Output**
-- `log_id`
+- `review_id`
 - `log_date`
 - `device`
 - `os`
 - `location`
-- `browser`
 - `ip`
 - `phone_number`
 
@@ -242,10 +228,10 @@ Using PySpark, I transformed `log_reviews.csv` by:
 | Column | Description |
 |--------|-------------|
 | customerid | Customer identifier |
+| id_dim_date | Date dimension key |
 | id_dim_devices | Device dimension key |
 | id_dim_location | Location dimension key |
 | id_dim_os | OS dimension key |
-| id_dim_browser | Browser dimension key |
 | amount_spent | Total customer spend |
 | review_score | Sum of positive reviews |
 | review_count | Total reviews |
@@ -274,11 +260,7 @@ Using PySpark, I transformed `log_reviews.csv` by:
 #### `dim_os`
 - `id_dim_os`
 - `os`
-
-#### `dim_browser`
-- `id_dim_browser`
-- `browser`
-
+  
 ---
 
 ## Fact Table Business Logic
@@ -300,44 +282,7 @@ This project supports queries such as:
 - How many reviews were submitted in California, New York, and Texas?
 - How many reviews were submitted using Apple devices?
 - Which states had the highest and lowest review volume in 2021?
-- Which device type was most used in the East versus the West?
 - Which customers spent the most and how does that compare to review activity?
 
----
-
-## Project Structure
-
-```bash
-movie-analytics-pipeline/
-├── README.md
-├── docker-compose.yml
-├── .env
-├── dags/
-│   └── movie_analytics_pipeline.py
-├── spark_jobs/
-│   ├── transform_reviews.py
-│   ├── transform_logs.py
-│   ├── extract_user_purchase.py
-│   └── build_fact_movie_analytics.py
-├── sql/
-│   ├── create_source_schema.sql
-│   ├── create_stage_tables.sql
-│   ├── create_dim_tables.sql
-│   ├── create_fact_table.sql
-│   └── analytics_queries.sql
-├── scripts/
-│   ├── load_user_purchase.py
-│   ├── upload_raw_files.sh
-│   └── init_connections.sh
-├── data/
-│   ├── raw/
-│   │   ├── movie_review.csv
-│   │   └── log_reviews.csv
-│   └── sample/
-│       └── user_purchase.csv
-├── docs/
-│   ├── architecture-diagram.png
-│   ├── airflow-dag.png
-│   └── metabase-dashboard.png
 └── notebooks/
     └── exploratory_checks.ipynb
