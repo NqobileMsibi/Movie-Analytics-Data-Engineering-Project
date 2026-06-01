@@ -1,6 +1,8 @@
 # End-to-End Movie Analytics Data Pipeline
 
-The solution ingests transactional and external review data, transforms it into analytics-ready datasets, and loads a dimensional warehouse to support reporting and business insights.
+An end-to-end data engineering project built as part of the Google Africa Data Engineering Bootcamp.  
+This project ingests raw transactional and review data, transforms it using Spark, orchestrates workflows with Airflow, and loads curated analytics tables into a data warehouse for reporting and business insights.
+
 
 ---
 
@@ -284,5 +286,10 @@ This project supports queries such as:
 - Which states had the highest and lowest review volume in 2021?
 - Which customers spent the most and how does that compare to review activity?
 
-└── notebooks/
-    └── exploratory_checks.ipynb
+---
+
+## Author
+Nqobile Msibi
+Data Engineer | Data Analyst | Analytics Engineer | Cloud Data Enthusiast
+
+-- LinkedIn: https://www.linkedin.com/in/nqobile-msibi/
